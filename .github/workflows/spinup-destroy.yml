@@ -8,7 +8,8 @@ env:
   IMAGE_REGISTRY_URL: ghcr.io
   AZURE_RESOURCE_GROUP: cd-with-actions
   AZURE_APP_PLAN: actions-ttt-deployment
-  AZURE_LOCATION: '"East US"'
+  AZURE_RESOURCE_GROUP_LOCATION: eastus
+  AZURE_LOCATION: centralus
   ###############################################
   ### Replace <username> with GitHub username ###
   ###############################################
@@ -28,15 +29,26 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Create Azure resource group
-        if: success()
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
-          az group create --location ${{env.AZURE_LOCATION}} --name ${{env.AZURE_RESOURCE_GROUP}} --subscription ${{secrets.AZURE_SUBSCRIPTION_ID}}
+          az group create \
+            --location "$AZURE_RESOURCE_GROUP_LOCATION" \
+            --name "$AZURE_RESOURCE_GROUP" \
+            --subscription "$AZURE_SUBSCRIPTION_ID"
 
       - name: Create Azure app service plan
-        if: success()
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
-          az appservice plan create --resource-group ${{env.AZURE_RESOURCE_GROUP}} --name ${{env.AZURE_APP_PLAN}} --is-linux --sku F1 --subscription ${{secrets.AZURE_SUBSCRIPTION_ID}}
-
+          az appservice plan create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_APP_PLAN" \
+            --location "$AZURE_LOCATION" \
+            --is-linux \
+            --sku F1 \
+            --subscription "$AZURE_SUBSCRIPTION_ID"
+            
       - name: Create webapp resource
         if: success()
         run: |
