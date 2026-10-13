@@ -4,48 +4,58 @@ on:
   pull_request:
     types: [labeled]
 
+permissions:
+  contents: read
+
 env:
   IMAGE_REGISTRY_URL: ghcr.io
-  ###############################################
-  ### Replace <username> with GitHub username ###
-  ###############################################
-  DOCKER_IMAGE_NAME: RafaelTorresLopez-azure-ttt
+  DOCKER_IMAGE_NAME: rafaeltorreslopez-azure-ttt
   AZURE_WEBAPP_NAME: RafaelTorresLopez-ttt-app
-  ###############################################
 
 jobs:
   build:
+    name: Build application
     if: contains(github.event.pull_request.labels.*.name, 'stage')
-
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 16
-      - name: npm install and build webpack
+
+      - name: Install dependencies and build webpack
         run: |
           npm install
           npm run build
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload webpack artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: webpack artifacts
+          name: webpack-artifacts
           path: public/
+          if-no-files-found: error
 
   Build-Docker-Image:
+    name: Build image and store in GHCR
     runs-on: ubuntu-latest
     needs: build
-    name: Build image and store in GitHub Container Registry
+
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download built artifact
+      - name: Download webpack artifacts
         uses: actions/download-artifact@v4
         with:
-          name: webpack artifacts
-          path: public
+          name: webpack-artifacts
+          path: public/
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -54,11 +64,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT }}
 
-      - name: Extract metadata (tags, labels) for Docker
+      - name: Generate image tags and labels
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{env.IMAGE_REGISTRY_URL}}/${{ github.repository }}/${{env.DOCKER_IMAGE_NAME}}
+          images: ${{ env.IMAGE_REGISTRY_URL }}/${{ github.repository }}/${{ env.DOCKER_IMAGE_NAME }}
           tags: |
             type=sha,format=long,prefix=
 
@@ -71,31 +81,33 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   Deploy-to-Azure:
+    name: Deploy app container to Azure
     runs-on: ubuntu-latest
     needs: Build-Docker-Image
-    name: Deploy app container to Azure
+
     steps:
-      - name: "Login via Azure CLI"
+      - name: Login to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - uses: azure/docker-login@v1
-        with:
-          login-server: ${{env.IMAGE_REGISTRY_URL}}
-          username: ${{ github.actor }}
-          password: ${{ secrets.CR_PAT }}
+      - name: Show image to deploy
+        env:
+          DEPLOY_IMAGE: ${{ needs.Build-Docker-Image.outputs.image }}
+        run: |
+          if [ -z "$DEPLOY_IMAGE" ]; then
+            echo "No se ha recibido la referencia de la imagen."
+            exit 1
+          fi
+
+          printf 'Imagen que se desplegará: %s\n' "$DEPLOY_IMAGE"
 
       - name: Deploy web app container
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{env.AZURE_WEBAPP_NAME}}
-          images: ${{env.IMAGE_REGISTRY_URL}}/${{ github.repository }}/${{env.DOCKER_IMAGE_NAME}}:${{ github.sha }}
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          images: ${{ needs.Build-Docker-Image.outputs.image }}
 
-      - name: Azure logout via Azure CLI
-        uses: azure/CLI@v2
-        with:
-          inlineScript: |
-            az logout
-            az cache purge
-            az account clear
+      - name: Logout from Azure
+        if: always()
+        run: az logout
