@@ -12,6 +12,7 @@ env:
   AZURE_LOCATION: centralus
   ###############################################
   ### Replace <username> with GitHub username ###
+  ### Se modifica también las regiones de Azure #
   ###############################################
   AZURE_WEBAPP_NAME: RafaelTorresLopez-ttt-app
 
